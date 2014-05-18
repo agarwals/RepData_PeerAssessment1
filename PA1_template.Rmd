@@ -2,19 +2,183 @@
 
 
 ## Loading and preprocessing the data
+### Assumptions
+1. Working directory is set to current local clone of the github repository for this assignment.
+2. The dataset, `activity.zip`, required for the reproducible research is already downloaded to the repository. 
 
+```{r loadData, echo=TRUE}
+
+data.local.zip = "activity.zip"
+data.local = "activity.csv"
+
+# extract the file, if not already extracted 
+if (!file.exists (data.local))  
+    unzip (data.local.zip)
+
+# fail if there is a problem with extracted data
+if (!file.exists (data.local))          
+    stop ("unable to extract the source data!") 
+
+# load the data
+activityData <- read.csv(data.local,na.strings="NA",stringsAsFactors=FALSE);
+
+# take a quick look at the data culture
+summary (activityData)  
+#str (activityData)  
+#head (activityData)  
+#tail (activityData)  
+
+```
 
 
 ## What is mean total number of steps taken per day?
 
+- Make a histogram of the total number of steps taken each day
+```{r histogram,fig.width=8, fig.height=6,echo=TRUE}
+require(ggplot2);
+require(plyr);
+totalSteps <- ddply(activityData, .(date),function(activityData)sum(activityData$steps));
+names(totalSteps) <- c("Date","Total Steps");
+#summary (totalSteps);
+
+# plot the histogram
+hist(totalSteps[["Total Steps"]],main="Total no. steps for each days",xlab="Steps");
+
+
+```
+
+
+- Calculate and report the mean and median total number of steps taken per day
+```{r mean,echo=TRUE}
+meanValue <- mean(totalSteps[["Total Steps"]],na.rm=TRUE);
+medianValue <- median(totalSteps[["Total Steps"]],na.rm=TRUE);
+
+print(meanValue);
+```
+Mean : `r meanValue`      
+Median: `r medianValue`
+
 
 
 ## What is the average daily activity pattern?
+
+- Time series plot of the 5-minute interval (x-axis) and the average number of steps taken, averaged across all days (y-axis)
+
+```{r}
+
+plotGraph <- function(dataSet){
+    # Initialize ggplot
+    g<-ggplot(dataSet, aes(interval,steps));
+    # Add layer
+    g <- g+geom_line(size=1);
+    # Add label
+    g <- g+labs(title="Average Daily Activity Pattern", x="Interval", y="Steps");
+    
+    print(g);
+    
+    }
+# Find the average steps for interval
+avrStepPerInterval <- ddply(activityData,
+                            .(interval),
+                            function(activityData)mean(activityData$steps,na.rm=TRUE));
+
+names(avrStepPerInterval) <- c("interval","steps");
+
+plotGraph(avrStepPerInterval);
+```
+
+
+- 5-minute interval, on average across all the days in the dataset, contains the maximum number of steps
+```{r}
+# Find interval in which maximum steps contained
+maxStepInterval <- avrStepPerInterval[which.max(avrStepPerInterval$steps),]$interval;
+
+```
+Interval contains the maximum number of steps: `r maxStepInterval`
+
 
 
 
 ## Imputing missing values
 
 
+- Calculate and report the total number of missing values in the dataset (i.e. the total number of rows with NAs)
+```{r missingDataReport,echo=TRUE}
+## Remove NA values
+rowCount <- nrow(activityData[is.na(activityData$steps),]);
+
+```
+The total number of rows with NAs is `r rowCount`.
+
+
+- Fill all of the missing values in the dataset with mean value of the interval
+```{r healling dataset, echo=TRUE}
+meansValue <- function(activityData, avrStepPerInterval) {
+    naIndices <- which(is.na(activityData$steps));    
+    replacements <- unlist(lapply(naIndices, FUN=function(x){
+        interval = activityData[x,]$interval;        
+        temp <- round(avrStepPerInterval[which(avrStepPerInterval$interval == interval),]$steps,2);        
+        }))
+    missedSteps <- activityData$steps;   
+    missedSteps[naIndices] <- replacements;
+    missedSteps;
+    }
+## Data frame for fixed data
+healedData <- data.frame(
+    steps = meansValue(activityData, avrStepPerInterval),
+    date = activityData$date,
+    interval = activityData$interval);
+
+origSummary <- summary(activityData);
+filledDataSummary <- summary(healedData);
+```
+Summary of original data: `r origSummary`
+
+Summary of filled data: `r filledDataSummary`
+
+
+
+- Histogram of the steps taken each days
+```{r histogramForHealData, echo=TRUE}
+steps <- ddply(healedData,.(date),function(healedData)sum(healedData$steps));
+names(steps) <- c("Date","Total Steps");
+hist(steps[["Total Steps"]],main="Total no. steps for each days",xlab="Steps");
+
+mean <- round(mean(steps[["Total Steps"]],na.rm=TRUE),2);
+median <- round(median(steps[["Total Steps"]],na.rm=TRUE),2);
+
+```
+Mean after fixing NA values : `r mean`      
+Median after fixing NA values: `r median`
+
+
 
 ## Are there differences in activity patterns between weekdays and weekends?
+
+```{r weeklyActivity, echo=TRUE}
+evaluateWeeklyStep <- function(fixedData) {
+    fixedData$weekday <- as.factor(weekdays(as.Date(fixedData$date)));
+    weekend <- subset(fixedData, weekday %in% c("Saturday","Sunday"));
+    weekday <- subset(fixedData, !weekday %in% c("Saturday","Sunday"));
+    
+    weekendSteps <- ddply(weekend,.(interval),function(weekend)mean(weekend$steps,na.rm=TRUE));    
+    weekdaySteps <- ddply(weekday,.(interval),function(weekday)mean(weekday$steps,na.rm=TRUE));
+    
+    weekendSteps$dayofweek <- rep("weekend", nrow(weekendSteps));
+    weekdaySteps$dayofweek <- rep("weekday", nrow(weekdaySteps));
+    
+    week <- rbind(weekendSteps, weekdaySteps);
+    week$dayofweek <- as.factor(week$dayofweek);
+    names(week) <- c("interval","steps","dayofweek");
+    week;
+    }
+weeklyPlot <- function(healedData) {
+    ggplot(healedData,
+           aes(interval,steps)) +
+        geom_line(size=1) +
+        facet_wrap(~ dayofweek, nrow=2, ncol=1) +
+        labs(x="Interval", y="Steps");        
+    }
+weekData <- evaluateWeeklyStep(healedData);
+weeklyPlot(weekData);
+```
